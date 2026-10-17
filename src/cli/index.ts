@@ -237,7 +237,9 @@ function listenWithFallback(server: ReturnType<typeof createServer>, startPort: 
 
       server.once('error', onError)
       server.once('listening', onListening)
-      server.listen(port)
+      // Target service is deliberately local-only; public routing is a later,
+      // separately verified migration stage.
+      server.listen(port, '127.0.0.1')
     }
 
     attempt(startPort)
