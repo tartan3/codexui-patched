@@ -287,6 +287,25 @@ test('does not gate completions on a stalled startup backfill', async () => {
   harness.router.dispose()
 })
 
+test('retries a timed-out startup backfill once and records subagent metadata', async () => {
+  let calls = 0
+  const harness = createHarness({
+    listThreads: async () => {
+      calls += 1
+      if (calls === 1) return await new Promise(() => {})
+      return { data: [{ id: 'recovered-child', source: 'subAgentThreadSpawn' }], nextCursor: null }
+    },
+    readThread: async () => ({}),
+    backfillRequestTimeoutMs: 10,
+  })
+
+  await delay(35)
+
+  assert.equal(calls, 3, 'the successful retry reads active and archived subagent pages')
+  assert.ok(harness.removedHistory.some((threadIds) => threadIds.includes('recovered-child')))
+  harness.router.dispose()
+})
+
 test('production and Vite dev servers share the notification router', async () => {
   const [httpServerSource, viteConfigSource] = await Promise.all([
     readFile(new URL('../src/server/httpServer.ts', import.meta.url), 'utf8'),

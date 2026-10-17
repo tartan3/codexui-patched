@@ -96,6 +96,7 @@ export function createTurnNotificationRouter(
   let boardDeliveryQueue = Promise.resolve()
   const nativeRequestEvents = new Map<number, ProjectBoardNotification>()
   const notifiedInputRequestIds = new Set<string>()
+  let subagentBackfillRetry: ReturnType<typeof setTimeout> | null = null
 
   const removeInternalHistory = (threadIds: Iterable<string>): void => {
     void options.webPushTurnNotifier.removeThreadHistory(threadIds).catch((error: unknown) => {
@@ -322,22 +323,36 @@ export function createTurnNotificationRouter(
     })
   }
 
-  void loadInternalSubagentThreadIds((params) => withTimeout(
-    options.bridge.listThreads(params),
-    backfillRequestTimeoutMs,
-    'subagent thread backfill request',
-  )).then((threadIds) => {
-    if (disposed) return
-    tracker.addInternalThreadIds(threadIds)
-    removeInternalHistory(threadIds)
-  }).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[notifications] Could not backfill subagent thread metadata: ${message}`)
-  })
+  const backfillSubagentMetadata = (retryOnTimeout: boolean): void => {
+    void loadInternalSubagentThreadIds((params) => withTimeout(
+      options.bridge.listThreads(params),
+      backfillRequestTimeoutMs,
+      'subagent thread backfill request',
+    )).then((threadIds) => {
+      if (disposed) return
+      tracker.addInternalThreadIds(threadIds)
+      removeInternalHistory(threadIds)
+    }).catch((error: unknown) => {
+      if (disposed) return
+      const message = error instanceof Error ? error.message : String(error)
+      if (retryOnTimeout && /timed out$/u.test(message)) {
+        subagentBackfillRetry = setTimeout(() => {
+          subagentBackfillRetry = null
+          backfillSubagentMetadata(false)
+        }, backfillRequestTimeoutMs)
+        subagentBackfillRetry.unref?.()
+        return
+      }
+      console.warn(`[notifications] Could not backfill subagent thread metadata: ${message}`)
+    })
+  }
+
+  backfillSubagentMetadata(true)
 
   return {
     dispose: () => {
       disposed = true
+      if (subagentBackfillRetry) clearTimeout(subagentBackfillRetry)
       unsubscribe()
     },
   }
