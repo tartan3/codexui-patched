@@ -219,7 +219,11 @@ async function startCloudflaredTunnel(localPort: number): Promise<{
   })
 }
 
-function listenWithFallback(server: ReturnType<typeof createServer>, startPort: number): Promise<number> {
+function listenWithFallback(
+  server: ReturnType<typeof createServer>,
+  startPort: number,
+  host: string | undefined,
+): Promise<number> {
   return new Promise((resolve, reject) => {
     const attempt = (port: number) => {
       const onError = (error: NodeJS.ErrnoException) => {
@@ -237,9 +241,11 @@ function listenWithFallback(server: ReturnType<typeof createServer>, startPort: 
 
       server.once('error', onError)
       server.once('listening', onListening)
-      // Target service is deliberately local-only; public routing is a later,
-      // separately verified migration stage.
-      server.listen(port, '127.0.0.1')
+      if (host) {
+        server.listen(port, host)
+      } else {
+        server.listen(port)
+      }
     }
 
     attempt(startPort)
@@ -248,6 +254,7 @@ function listenWithFallback(server: ReturnType<typeof createServer>, startPort: 
 
 async function startServer(options: {
   envFile?: string
+  host?: string
   openBrowser: boolean
   port: string
   password: string | boolean
@@ -271,7 +278,9 @@ async function startServer(options: {
   const { app, dispose, attachWebSocket } = createApp({ password })
   const server = createServer(app)
   attachWebSocket(server)
-  const port = await listenWithFallback(server, requestedPort)
+  // The flag wins over the env file; with neither, listen on every interface.
+  const host = options.host?.trim() || process.env.CODEXUI_HOST?.trim() || undefined
+  const port = await listenWithFallback(server, requestedPort, host)
   let tunnelChild: ReturnType<typeof spawn> | null = null
   let tunnelUrl: string | null = null
 
@@ -350,6 +359,7 @@ async function runLogin() {
 
 program
   .option('-p, --port <port>', 'port to listen on', '5999')
+  .option('--host <address>', 'address to listen on, for example 127.0.0.1 (default: all interfaces)')
   .option('--env-file <path>', 'load runtime configuration and secrets from an env file')
   .option('--password <pass>', 'set a specific password')
   .option('--no-password', 'disable password protection')
@@ -359,6 +369,7 @@ program
   .option('--no-tunnel', 'disable cloudflared tunnel startup')
   .action(async (opts: {
     envFile?: string
+    host?: string
     openBrowser: boolean
     port: string
     password: string | boolean

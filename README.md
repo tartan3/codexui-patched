@@ -312,6 +312,10 @@ process with `systemd` or another service manager so it starts after a reboot.
 Do not open port `5999` directly to the internet. Put it behind an authenticated
 gateway and HTTPS.
 
+CodexUI listens on every interface by default. When the gateway or tunnel runs on
+the same host, add `--host 127.0.0.1` (or set `CODEXUI_HOST=127.0.0.1` in the env
+file) so only local connections reach it.
+
 ## Use it from a phone or another computer
 
 CodexUI is a website, so there is no separate mobile app to install.
